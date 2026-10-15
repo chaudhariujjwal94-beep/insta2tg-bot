@@ -1,55 +1,50 @@
 # Insta2TG Bot
 
-Ek Telegram bot jo kisi bhi **public** Instagram account ka profile info, latest posts, reels aur stories Telegram par bhej deta hai. Repo se hi chalta hai: Termux, laptop ya VPS, kahin bhi.
+Telegram bot jo kisi bhi **public** Instagram account ka profile, latest posts, reels aur stories Telegram par bhej deta hai. Termux, laptop, VPC sab pe chal jata hai.
 
-## Kaise chalega (3 step)
+## Start kaise kare
 
-1. Telegram me @BotFather kholo, /newbot bhejo, token copy karo
-2. `pip install -r requirements.txt`
+1. Telegram me @BotFather kholo, /newbot se bot banao aur token copy karo.
+2. Install: `pip install -r requirements.txt`
 3. Token set karke chalao:
-```
-export BOT_TOKEN="apna_botfather_token"
-python bot.py
-```
+   ```
+   export BOT_TOKEN="apna_botfather_token"
+   python bot.py
+   ```
 
-Ab bot ko koi bhi public username bhejo (jaise `natgeo` ya `instagram.com/natgeo`). Profile khulegi aur niche buttons milenge, tap karne par posts, reels aur stories aa jayenge.
+## Bot ke commands
 
-## Buttons
+- `/posts <username>` - latest posts
+- `/reels <username>` - latest reels
+- `/stories <username>` - stories
+- `/profile <username>` - profile info
+- `/storysetup` - stories pakka dikhane ka login setup
+- `/start` - pura menu aur help
 
-Username bhejne par profile ke niche 4 buttons aate hain, tap karne par wahi kaam hote hain: Latest posts, Reels, Stories, aur Profile dobara.
+Ya seedha username bhejo (jaise `natgeo` ya poora link), profile ke niche buttons aa jayenge: Latest posts, Reels, Stories, Profile.
 
-## Stories ke liye login (optional)
+## Stories pakka dikhane ke liye ek baar login (optional)
 
-Stories ka bina-login tarika Instagram ke public web endpoint par chalta hai, wahi jo kai open-source story viewers use karte hain. Kabhi-kabhi Instagram ise IP ke hisab se rok deta hai. Login session laga do to stories pakka aayengi:
+Instagram stories sirf logged-in session ko deta hai, isliye:
 
 ```
 pip install instaloader
 instaloader -l apna_instagram_username
-```
-
-Password khud puchega aur local session file me save hoga, repo me kahin nahi jata. Phir bot chalate waqt:
-
-```
 export IG_USERNAME=apna_instagram_username
 python bot.py
 ```
 
-## Environment variables
+Password sirf local session file me jaata hai, repo me kahin nahi (gitignore me excluded hai).
 
-| Variable | Zaroori? | Kaam |
-|---|---|---|
-| BOT_TOKEN | haan | BotFather se mila token |
-| MAX_POSTS | nahi (default 3) | Ek username par kitne latest posts/reels |
-| MAX_REELS | nahi (default 3) | Reels button par kitni reels |
-| MAX_STORIES | nahi (default 5) | Ek baar me kitni stories |
-| IG_USERNAME | nahi | Stories ke liye kis username ki session load karni hai |
+## Dhyan rakhne wali baat
 
-## Limits (sach wali baat)
+- Sirf PUBLIC accounts: private ka kuch nahi dikhega.
+- Instagram datacenter/VPN ke IP aksar rok deta hai. Ghar ke IP pe (Termux/laptop) chalao to kaafi reliable rehta hai.
+- Rate-limit: ek ke baad ek usernames mat do, thoda gap rakho.
+- Ye Instagram ka official API nahi hai, apne hi use ke liye hai.
 
-- Sirf PUBLIC accounts: private account ka content nahi milega.
-- Instagram bina login ke requests rate-limit karta hai: ek ke baad ek bahut saare usernames mat bhejo, thoda gap rakho.
-- Ye Instagram ka official API nahi hai (instaloader use karta hai), to Instagram ke badlav ke saath kabhi-kabhi update karna padta hai. Apne use ke liye hai.
+## Env variables
 
-## Kya bheje bot ko
-
-Koi bhi message jisme username ho: `natgeo`, `@natgeo`, ya poora link `https://instagram.com/natgeo`. Bot username khud nikaal lega.
+- `BOT_TOKEN` (zaroori) - BotFather se mila token
+- `MAX_POSTS` (default 3), `MAX_REELS` (default 3), `MAX_STORIES` (default 5)
+- `IG_USERNAME` - stories ke liye session file kis user ki load ho

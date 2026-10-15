@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Insta2TG - Telegram bot, public Instagram profiles: profile info, posts,
-reels, stories (bina login best-effort + optional session), inline buttons ke saath."""
+"""Insta2TG - Telegram bot, public Instagram profiles: profile, posts, reels,
+stories (bina-login best-effort + optional session), start menu + commands."""
 
 import asyncio
 import json
@@ -18,6 +18,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 MAX_POSTS = int(os.environ.get("MAX_POSTS", "3"))
 MAX_REELS = int(os.environ.get("MAX_REELS", "3"))
 MAX_STORIES = int(os.environ.get("MAX_STORIES", "5"))
+REPO_URL = "https://github.com/chaudhariujjwal94-beep/insta2tg-bot"
 
 L = instaloader.Instaloader(
     quiet=True, download_comments=False, save_metadata=False,
@@ -38,12 +39,40 @@ APP_ID = "936619743392459"
 UA = ("Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
 
+HELP_TEXT = (
+    "Insta2TG bot\n"
+    "Kisi bhi PUBLIC Instagram ke liye:\n"
+    "/posts <username> - latest posts\n"
+    "/reels <username> - latest reels\n"
+    "/stories <username> - stories\n"
+    "/profile <username> - profile info\n"
+    "/storysetup - stories pakka dikhane ka login setup\n"
+    "Ya seedha username bhejo, profile ke niche buttons aa jayenge."
+)
+
+STORY_SETUP_TEXT = (
+    "Stories pakka dikhane ke liye ek baar login session banao:\n"
+    "1) pip install instaloader\n"
+    "2) instaloader -l apna_instagram_username\n"
+    "3) export IG_USERNAME=apna_instagram_username\n"
+    "4) python bot.py\n"
+    "Password sirf local session file me jaata hai, repo me kahin nahi."
+)
+
+BLOCKED_TEXT = ("Instagram ne request rok di. Iska karan aksar IP hota hai, "
+                "datacenter ya VPN ke IP Instagram block karta hai. "
+                "Ghar ke IP (Termux/laptop) pe chalao ya thodi der baad try karo.")
+
 
 def clean_username(text: str) -> str:
     t = text.strip().lstrip("@").split("?")[0].strip()
     if not t:
         return ""
     return t.split()[0].rstrip("/").split("/")[-1].lower()
+
+
+def username_from_args(args) -> str:
+    return clean_username(" ".join(args)) if args else ""
 
 
 def caption_of(post) -> str:
@@ -204,6 +233,14 @@ def user_menu(username: str) -> InlineKeyboardMarkup:
     ])
 
 
+def start_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("Help", callback_data="help"),
+         InlineKeyboardButton("Story login setup", callback_data="storysetup")],
+        [InlineKeyboardButton("Repo", callback_data="repo")],
+    ])
+
+
 async def show_profile(bot, chat_id, username: str):
     profile = await fetch_profile(username)
     info = ("@" + profile.username + " - " + profile.full_name + "\n"
@@ -222,7 +259,7 @@ async def send_posts(bot, chat_id, username: str):
         profile = await fetch_profile(username)
         posts = await ig_call(first_posts, profile, MAX_POSTS)
     except Exception:
-        await bot.send_message(chat_id=chat_id, text="Instagram ne request rok di, thodi der baad try karo.")
+        await bot.send_message(chat_id=chat_id, text=BLOCKED_TEXT)
         return
     if not posts:
         await bot.send_message(chat_id=chat_id, text="Koi post nahi mila.")
@@ -245,7 +282,7 @@ async def send_reels(bot, chat_id, username: str):
         profile = await fetch_profile(username)
         reels = await ig_call(pick_reels, profile, MAX_REELS)
     except Exception:
-        await bot.send_message(chat_id=chat_id, text="Instagram ne request rok di, thodi der baad try karo.")
+        await bot.send_message(chat_id=chat_id, text=BLOCKED_TEXT)
         return
     if not reels:
         await bot.send_message(chat_id=chat_id, text="Recent posts me koi reel nahi mili.")
@@ -272,8 +309,8 @@ async def send_stories(bot, chat_id, username: str):
     if not items:
         await bot.send_message(
             chat_id=chat_id,
-            text="Abhi stories nahi mil rahi. Ya account ki stories chal hi nahi rahi, ya Instagram ne rok diya. "
-                 "Thodi der baad try karo, ya README wala login session setup kar do.")
+            text="Abhi stories nahi mil rahi. Ya stories chal hi nahi rahi, ya Instagram ne rok diya. "
+                 "Pakka chahiye to /storysetup wala login session bana lo.")
         return
     for i, (is_video, url) in enumerate(items):
         try:
@@ -283,17 +320,66 @@ async def send_stories(bot, chat_id, username: str):
 
 
 async def start(update: Update, context):
-    await update.message.reply_text(
-        "Kisi bhi PUBLIC Instagram account ka username bhejo.\n"
-        "Profile khulegi aur niche buttons milenge, tap karne par posts, "
-        "reels aur stories aa jayenge.")
+    await update.message.reply_text(HELP_TEXT, reply_markup=start_menu())
+
+
+async def cmd_posts(update: Update, context):
+    username = username_from_args(context.args)
+    if not username:
+        await update.message.reply_text("Aise likho, /posts natgeo")
+        return
+    await send_posts(context.bot, update.effective_chat.id, username)
+
+
+async def cmd_reels(update: Update, context):
+    username = username_from_args(context.args)
+    if not username:
+        await update.message.reply_text("Aise likho, /reels natgeo")
+        return
+    await send_reels(context.bot, update.effective_chat.id, username)
+
+
+async def cmd_stories(update: Update, context):
+    username = username_from_args(context.args)
+    if not username:
+        await update.message.reply_text("Aise likho, /stories natgeo")
+        return
+    await send_stories(context.bot, update.effective_chat.id, username)
+
+
+async def cmd_profile(update: Update, context):
+    username = username_from_args(context.args)
+    if not username:
+        await update.message.reply_text("Aise likho, /profile natgeo")
+        return
+    try:
+        await show_profile(context.bot, update.effective_chat.id, username)
+    except instaloader.exceptions.ProfileNotExistsException:
+        await update.message.reply_text("Ye username exist nahi karta.")
+    except Exception:
+        await update.message.reply_text(BLOCKED_TEXT)
+
+
+async def cmd_storysetup(update: Update, context):
+    await update.message.reply_text(STORY_SETUP_TEXT)
 
 
 async def on_button(update: Update, context):
     q = update.callback_query
     await q.answer()
-    action, username = q.data.split(":", 1)
+    data = q.data
     chat_id = q.message.chat_id
+    if data == "help":
+        await context.bot.send_message(chat_id=chat_id, text=HELP_TEXT)
+        return
+    if data == "storysetup":
+        await context.bot.send_message(chat_id=chat_id, text=STORY_SETUP_TEXT)
+        return
+    if data == "repo":
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("Repo kholo", url=REPO_URL)]])
+        await context.bot.send_message(chat_id=chat_id, text="Poora code yahan hai", reply_markup=kb)
+        return
+    action, username = data.split(":", 1)
     if action == "posts":
         await send_posts(context.bot, chat_id, username)
     elif action == "reels":
@@ -304,7 +390,7 @@ async def on_button(update: Update, context):
         try:
             await show_profile(context.bot, chat_id, username)
         except Exception:
-            await context.bot.send_message(chat_id=chat_id, text="Profile nahi khuli, thodi der baad try karo.")
+            await context.bot.send_message(chat_id=chat_id, text=BLOCKED_TEXT)
 
 
 async def handle(update: Update, context):
@@ -318,7 +404,7 @@ async def handle(update: Update, context):
     except instaloader.exceptions.ProfileNotExistsException:
         await update.message.reply_text("Ye username exist nahi karta.")
     except Exception:
-        await update.message.reply_text("Instagram ne request rok di, 1-2 min baad try karna.")
+        await update.message.reply_text(BLOCKED_TEXT)
 
 
 def main():
@@ -327,6 +413,11 @@ def main():
 
     app = Application.builder().token(BOT_TOKEN).concurrent_updates(True).build()
     app.add_handler(CommandHandler(["start", "help"], start))
+    app.add_handler(CommandHandler("posts", cmd_posts))
+    app.add_handler(CommandHandler("reels", cmd_reels))
+    app.add_handler(CommandHandler("stories", cmd_stories))
+    app.add_handler(CommandHandler("profile", cmd_profile))
+    app.add_handler(CommandHandler("storysetup", cmd_storysetup))
     app.add_handler(CallbackQueryHandler(on_button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
     print("[i] Bot chal raha hai. Band karne ke liye Ctrl+C.")
