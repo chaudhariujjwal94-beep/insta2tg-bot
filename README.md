@@ -12,11 +12,15 @@ export BOT_TOKEN="apna_botfather_token"
 python bot.py
 ```
 
-Ab bot ko koi bhi public username bhejo (jaise `natgeo` ya `instagram.com/natgeo`). Profile info, latest 3 posts/reels, aur login ho to stories aa jayengi.
+Ab bot ko koi bhi public username bhejo (jaise `natgeo` ya `instagram.com/natgeo`). Profile khulegi aur niche buttons milenge, tap karne par posts, reels aur stories aa jayenge.
 
-## Stories ke liye ek baar login (optional)
+## Buttons
 
-Instagram sirf logged-in session ko stories dikhata hai, isliye stories chahiye to ek baar:
+Username bhejne par profile ke niche 4 buttons aate hain, tap karne par wahi kaam hote hain: Latest posts, Reels, Stories, aur Profile dobara.
+
+## Stories ke liye login (optional)
+
+Stories ka bina-login tarika Instagram ke public web endpoint par chalta hai, wahi jo kai open-source story viewers use karte hain. Kabhi-kabhi Instagram ise IP ke hisab se rok deta hai. Login session laga do to stories pakka aayengi:
 
 ```
 pip install instaloader
@@ -36,6 +40,7 @@ python bot.py
 |---|---|---|
 | BOT_TOKEN | haan | BotFather se mila token |
 | MAX_POSTS | nahi (default 3) | Ek username par kitne latest posts/reels |
+| MAX_REELS | nahi (default 3) | Reels button par kitni reels |
 | MAX_STORIES | nahi (default 5) | Ek baar me kitni stories |
 | IG_USERNAME | nahi | Stories ke liye kis username ki session load karni hai |
 
