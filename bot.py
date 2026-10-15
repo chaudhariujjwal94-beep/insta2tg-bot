@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Insta2TG - Telegram bot jo kisi bhi PUBLIC Instagram profile ka
-profile info, latest posts, reels aur stories Telegram par bhejta hai."""
+"""Insta2TG - fast Telegram bot jo public Instagram profiles ka
+profile info, posts, reels aur stories bhejta hai."""
 
+import asyncio
 import os
 import tempfile
 
@@ -9,6 +10,7 @@ import instaloader
 import requests
 from telegram import Update
 from telegram.constants import ChatAction
+from telegram.error import TelegramError
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
@@ -30,15 +32,16 @@ if IG_USER:
         L.load_session_from_file(IG_USER)
         print("[i] Instagram session load ho gayi: " + IG_USER)
     except FileNotFoundError:
-        print("[!] Session file nahi mili. Stories ke liye pehle chalao: instaloader -l " + IG_USER)
+        print("[!] Session file nahi mili. Stories ke liye pehle: instaloader -l " + IG_USER)
+
+IG_LOCK = asyncio.Lock()
 
 
 def clean_username(text: str) -> str:
     t = text.strip().lstrip("@").split("?")[0].strip()
     if not t:
         return ""
-    t = t.split()[0].rstrip("/").split("/")[-1]
-    return t.lower()
+    return t.split()[0].rstrip("/").split("/")[-1].lower()
 
 
 def caption_of(post) -> str:
@@ -49,6 +52,37 @@ def caption_of(post) -> str:
     if cap:
         return head + "\n" + cap[:900]
     return head
+
+
+def media_items(post):
+    items = []
+    if post.mediacount > 1:
+        for node in post.get_sidecar_nodes():
+            items.append((node.is_video, node.video_url if node.is_video else node.display_url))
+    elif post.is_video:
+        items.append((True, post.video_url))
+    else:
+        items.append((False, post.display_url))
+    return items[:10]
+
+
+def first_posts(profile, n):
+    out = []
+    for i, post in enumerate(profile.get_posts()):
+        if i >= n:
+            break
+        out.append(post)
+    return out
+
+
+def story_items(profile, n):
+    out = []
+    for story in profile.get_stories():
+        for item in story.get_items():
+            out.append((item.is_video, item.video_url if item.is_video else item.display_url))
+            if len(out) >= n:
+                return out
+    return out
 
 
 def download_media(url: str, suffix: str) -> str:
@@ -62,8 +96,18 @@ def download_media(url: str, suffix: str) -> str:
 
 
 async def send_media(update: Update, is_video: bool, url: str, caption: str = ""):
-    suffix = ".mp4" if is_video else ".jpg"
-    path = download_media(url, suffix)
+    # pehle seedha URL, Telegram khud utha leta hai, download ka wait nahi
+    try:
+        if is_video:
+            await update.message.reply_video(video=url, caption=caption,
+                                             read_timeout=60, write_timeout=60)
+        else:
+            await update.message.reply_photo(photo=url, caption=caption,
+                                             read_timeout=60, write_timeout=60)
+        return
+    except TelegramError:
+        pass  # URL fail hua, download karke bhejo
+    path = await asyncio.to_thread(download_media, url, ".mp4" if is_video else ".jpg")
     try:
         with open(path, "rb") as fh:
             if is_video:
@@ -74,18 +118,18 @@ async def send_media(update: Update, is_video: bool, url: str, caption: str = ""
         os.remove(path)
 
 
-async def send_post(update: Update, post):
-    cap = caption_of(post)
-    if post.mediacount > 1:
-        nodes = list(post.get_sidecar_nodes())[:10]
-        for i, node in enumerate(nodes):
-            await send_media(update, node.is_video,
-                             node.video_url if node.is_video else node.display_url,
-                             cap if i == 0 else "")
-    elif post.is_video:
-        await send_media(update, True, post.video_url, cap)
-    else:
-        await send_media(update, False, post.display_url, cap)
+async def fetch_profile(username: str):
+    async with IG_LOCK:
+        last_err = None
+        for attempt in range(2):
+            try:
+                return await asyncio.to_thread(instaloader.Profile.from_username, L.context, username)
+            except instaloader.exceptions.ProfileNotExistsException:
+                raise
+            except Exception as e:
+                last_err = e
+                await asyncio.sleep(4)
+        raise last_err
 
 
 async def start(update: Update, context):
@@ -99,16 +143,19 @@ async def start(update: Update, context):
 async def handle(update: Update, context):
     username = clean_username(update.message.text or "")
     if not username:
-        await update.message.reply_text("Username bhejo, jaise: natgeo")
+        await update.message.reply_text("Username bhejo, jaise natgeo")
         return
+
+    await update.message.reply_text("@" + username + " dekh raha hu, media aata hi hoga")
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+
     try:
-        profile = instaloader.Profile.from_username(L.context, username)
+        profile = await fetch_profile(username)
     except instaloader.exceptions.ProfileNotExistsException:
         await update.message.reply_text("Ye username exist nahi karta.")
         return
     except Exception:
-        await update.message.reply_text("Instagram ne request rok di (rate limit). Thodi der baad try karo.")
+        await update.message.reply_text("Instagram ne request rok di, 1-2 min baad try karna.")
         return
 
     info = ("@" + profile.username + " - " + profile.full_name + "\n"
@@ -123,36 +170,42 @@ async def handle(update: Update, context):
         return
 
     try:
-        sent = 0
-        for post in profile.get_posts():
-            if sent >= MAX_POSTS:
-                break
-            await send_post(update, post)
-            sent += 1
+        posts = await asyncio.to_thread(first_posts, profile, MAX_POSTS)
     except Exception:
-        await update.message.reply_text("Posts laate waqt Instagram ne block kar diya. Thodi der baad try karo.")
+        posts = []
+    for post in posts:
+        try:
+            items = await asyncio.to_thread(media_items, post)
+        except Exception:
+            continue
+        for i, (is_video, url) in enumerate(items):
+            try:
+                await send_media(update, is_video, url, caption_of(post) if i == 0 else "")
+            except Exception:
+                pass  # ek media fail ho to baaki chalte rahenge
 
+    need_login = False
     try:
-        count = 0
-        for story in profile.get_stories():
-            for item in story.get_items():
-                if count >= MAX_STORIES:
-                    break
-                await send_media(update, item.is_video,
-                                 item.video_url if item.is_video else item.display_url,
-                                 "Story")
-                count += 1
+        items = await asyncio.to_thread(story_items, profile, MAX_STORIES)
     except instaloader.exceptions.ConnectionException:
-        await update.message.reply_text("Stories ke liye bot ko ek baar Instagram login chahiye. README me 2 min ka setup hai.")
+        need_login = True
+        items = []
     except Exception:
-        pass
+        items = []
+    for i, (is_video, url) in enumerate(items):
+        try:
+            await send_media(update, is_video, url, "Story" if i == 0 else "")
+        except Exception:
+            pass
+    if need_login:
+        await update.message.reply_text("Stories ke liye bot ko ek baar Instagram login chahiye, README me setup hai.")
 
 
 def main():
     if not BOT_TOKEN:
         raise SystemExit("BOT_TOKEN set karo: export BOT_TOKEN='123456:ABC...'")
 
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = Application.builder().token(BOT_TOKEN).concurrent_updates(True).build()
     app.add_handler(CommandHandler(["start", "help"], start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
     print("[i] Bot chal raha hai. Band karne ke liye Ctrl+C.")
