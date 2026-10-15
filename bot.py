@@ -33,6 +33,11 @@ if IG_USER:
     except FileNotFoundError:
         print("[!] Session file nahi mili. Stories ke liye: instaloader -l " + IG_USER)
 
+PROXY_URL = os.environ.get("PROXY_URL", "")
+if PROXY_URL:
+    L.context.proxies = {"http": PROXY_URL, "https": PROXY_URL}
+    print("[i] Proxy lag gaya")
+
 IG_LOCK = asyncio.Lock()
 
 APP_ID = "936619743392459"
@@ -134,6 +139,7 @@ def ig_story_items(username, want):
 def anon_story_items(username, want):
     s = requests.Session()
     s.headers.update({"user-agent": UA, "accept": "*/*", "x-requested-with": "XMLHttpRequest"})
+    s.proxies.update({"http": PROXY_URL, "https": PROXY_URL})
     s.get("https://www.instagram.com/", timeout=30)
     s.headers.update({"x-ig-app-id": APP_ID})
     r = s.get("https://www.instagram.com/api/v1/users/web_profile_info/?username=" + username, timeout=30)
