@@ -5,7 +5,9 @@ stories (bina-login best-effort + optional session), start menu + commands."""
 import asyncio
 import json
 import os
+import re
 import tempfile
+import types
 
 import instaloader
 import requests
@@ -20,6 +22,13 @@ MAX_REELS = int(os.environ.get("MAX_REELS", "3"))
 MAX_STORIES = int(os.environ.get("MAX_STORIES", "5"))
 REPO_URL = "https://github.com/chaudhariujjwal94-beep/insta2tg-bot"
 WORKER_URL = os.environ.get("IG_WORKER_URL", "https://insta-proxy.chaudhariujjwal94.workers.dev")
+CRAWLBASE_TOKEN = os.environ.get("CRAWLBASE_TOKEN", "")
+if not CRAWLBASE_TOKEN:
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "crawlbase_token.txt")) as _fh:
+            CRAWLBASE_TOKEN = _fh.read().strip()
+    except OSError:
+        CRAWLBASE_TOKEN = ""
 
 L = instaloader.Instaloader(
     quiet=True, download_comments=False, save_metadata=False,
@@ -217,6 +226,51 @@ async def ig_call(fn, *args):
         return await asyncio.to_thread(fn, *args)
 
 
+def crawl_profile(username: str):
+    """Crawlbase fallback: public profile page se basic info."""
+    if not CRAWLBASE_TOKEN:
+        raise RuntimeError("crawlbase token missing")
+    r = requests.get("https://api.crawlbase.com/", params={
+        "token": CRAWLBASE_TOKEN,
+        "url": "https://www.instagram.com/" + username + "/",
+    }, timeout=120)
+    if r.status_code != 200:
+        raise RuntimeError("crawlbase status %s" % r.status_code)
+    h = r.text
+
+    def og(prop):
+        m = re.search(r'property="%s" content="([^"]*)"' % prop, h)
+        return m.group(1) if m else ""
+
+    title = og("og:title")
+    desc = og("og:description")
+    m = re.search(r'([\d.,]+[KkMmBb]?)\s*Followers,\s*([\d.,]+[KkMmBb]?)\s*Following,\s*([\d.,]+[KkMmBb]?)\s*Posts', desc)
+    if not m or "(@" not in title:
+        raise RuntimeError("profile data nahi mila (private ya block)")
+
+    def num(sval):
+        sval = sval.replace(",", "")
+        mult = 1
+        if sval and sval[-1] in "kK":
+            mult, sval = 1000, sval[:-1]
+        elif sval and sval[-1] in "mM":
+            mult, sval = 1000000, sval[:-1]
+        try:
+            return int(float(sval) * mult)
+        except ValueError:
+            return 0
+
+    return types.SimpleNamespace(
+        username=username,
+        full_name=title.split("(@")[0].strip().rstrip("\u2022").strip(),
+        followers=num(m.group(1)),
+        followees=num(m.group(2)),
+        mediacount=num(m.group(3)),
+        biography="",
+        is_private=False,
+    )
+
+
 async def fetch_profile(username: str):
     async with IG_LOCK:
         last_err = None
@@ -228,6 +282,10 @@ async def fetch_profile(username: str):
             except Exception as e:
                 last_err = e
                 await asyncio.sleep(4)
+        try:
+            return await asyncio.to_thread(crawl_profile, username)
+        except Exception as ce:
+            last_err = ce
         raise last_err
 
 
