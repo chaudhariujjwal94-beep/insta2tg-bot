@@ -19,6 +19,7 @@ MAX_POSTS = int(os.environ.get("MAX_POSTS", "3"))
 MAX_REELS = int(os.environ.get("MAX_REELS", "3"))
 MAX_STORIES = int(os.environ.get("MAX_STORIES", "5"))
 REPO_URL = "https://github.com/chaudhariujjwal94-beep/insta2tg-bot"
+WORKER_URL = os.environ.get("IG_WORKER_URL", "https://insta-proxy.chaudhariujjwal94.workers.dev")
 
 L = instaloader.Instaloader(
     quiet=True, download_comments=False, save_metadata=False,
@@ -140,9 +141,9 @@ def anon_story_items(username, want):
     s = requests.Session()
     s.headers.update({"user-agent": UA, "accept": "*/*", "x-requested-with": "XMLHttpRequest"})
     s.proxies.update({"http": PROXY_URL, "https": PROXY_URL})
-    s.get("https://www.instagram.com/", timeout=30)
+    s.get(WORKER_URL + "/", timeout=30)
     s.headers.update({"x-ig-app-id": APP_ID})
-    r = s.get("https://www.instagram.com/api/v1/users/web_profile_info/?username=" + username, timeout=30)
+    r = s.get(WORKER_URL + "/api/v1/users/web_profile_info/?username=" + username, timeout=30)
     try:
         j = r.json()
     except ValueError:
@@ -155,7 +156,7 @@ def anon_story_items(username, want):
         "x-csrftoken": s.cookies.get("csrftoken") or "",
         "content-type": "application/x-www-form-urlencoded",
     })
-    r = s.post("https://www.instagram.com/api/v1/feed/reels_media/",
+    r = s.post(WORKER_URL + "/api/v1/feed/reels_media/",
                data={"user_ids": json.dumps([uid]), "source": "reels_media"}, timeout=30)
     try:
         j = r.json()
