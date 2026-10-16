@@ -135,6 +135,23 @@ def pick_reels(profile, want):
     return out
 
 
+def list_users(username, which, n=20):
+    import itertools
+    prof = instaloader.Profile.from_username(L.context, username)
+    gen = prof.get_followers() if which == "followers" else prof.get_followees()
+    return [u.username for u in itertools.islice(gen, n)]
+
+
+def tagged_posts(username, n=3):
+    prof = instaloader.Profile.from_username(L.context, username)
+    out = []
+    for i, post in enumerate(prof.get_tagged_posts()):
+        if i >= n:
+            break
+        out.append(post)
+    return out
+
+
 def ig_story_items(username, want):
     prof = instaloader.Profile.from_username(L.context, username)
     out = []
@@ -291,10 +308,16 @@ async def fetch_profile(username: str):
 
 def user_menu(username: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Latest posts", callback_data="posts:" + username),
-         InlineKeyboardButton("Reels", callback_data="reels:" + username)],
-        [InlineKeyboardButton("Stories", callback_data="stories:" + username),
-         InlineKeyboardButton("Profile", callback_data="profile:" + username)],
+        [InlineKeyboardButton("\U0001F504 Refresh Info", callback_data="refresh:" + username),
+         InlineKeyboardButton("\U0001F4F7 Stories", callback_data="stories:" + username)],
+        [InlineKeyboardButton("\U0001F4F0 Posts", callback_data="posts:" + username),
+         InlineKeyboardButton("\U0001F3AC Reels", callback_data="reels:" + username)],
+        [InlineKeyboardButton("\U0001F465 Followers", callback_data="followers:" + username),
+         InlineKeyboardButton("\u27A1\uFE0F Following", callback_data="following:" + username)],
+        [InlineKeyboardButton("\u2728 Highlights", callback_data="highlights:" + username),
+         InlineKeyboardButton("\U0001F3F7\uFE0F Tagged in Posts", callback_data="tagged:" + username)],
+        [InlineKeyboardButton("\U0001F648 Hide from History", callback_data="hide:" + username)],
+        [InlineKeyboardButton("\U0001F514 Subscribe to new Stories", callback_data="subscribe:" + username)],
     ])
 
 
@@ -308,11 +331,11 @@ def start_menu() -> InlineKeyboardMarkup:
 
 async def show_profile(bot, chat_id, username: str):
     profile = await fetch_profile(username)
-    info = ("@" + profile.username + " - " + profile.full_name + "\n"
-            "Followers: {:,} | Following: {:,}\n"
-            "Posts: {:,}\n".format(profile.followers, profile.followees, profile.mediacount))
+    info = "@" + profile.username + " | " + profile.full_name + "\n\n"
     if profile.biography:
-        info += profile.biography[:300] + "\n"
+        info += profile.biography.strip()[:300] + "\n\n"
+    info += "Posts: {:,}\nFollowing: {:,}\nFollowers: {:,}".format(
+        profile.mediacount, profile.followees, profile.followers)
     if profile.is_private:
         info += "Ye account private hai, content nahi dikhega."
     await bot.send_message(chat_id=chat_id, text=info, reply_markup=user_menu(profile.username))
@@ -445,17 +468,48 @@ async def on_button(update: Update, context):
         await context.bot.send_message(chat_id=chat_id, text="Poora code yahan hai", reply_markup=kb)
         return
     action, username = data.split(":", 1)
-    if action == "posts":
-        await send_posts(context.bot, chat_id, username)
+    if action in ("posts", "refresh", "profile"):
+        await send_posts(context.bot, chat_id, username) if action == "posts" else None
+        if action in ("refresh", "profile"):
+            try:
+                await show_profile(context.bot, chat_id, username)
+            except Exception:
+                await context.bot.send_message(chat_id=chat_id, text=BLOCKED_TEXT)
     elif action == "reels":
         await send_reels(context.bot, chat_id, username)
     elif action == "stories":
         await send_stories(context.bot, chat_id, username)
-    elif action == "profile":
+    elif action in ("followers", "following"):
+        which = "followers" if action == "followers" else "following"
         try:
-            await show_profile(context.bot, chat_id, username)
+            names = await ig_call(list_users, username, which)
         except Exception:
-            await context.bot.send_message(chat_id=chat_id, text=BLOCKED_TEXT)
+            names = []
+        if not names:
+            await context.bot.send_message(chat_id=chat_id, text="List nahi mil paayi, Instagram ne rok diya.")
+            return
+        text = ("@" + username + " ke " + which + " (pehle " + str(len(names)) + "):\n"
+                + ", ".join("@" + n for n in names))
+        await context.bot.send_message(chat_id=chat_id, text=text)
+    elif action == "tagged":
+        try:
+            posts = await ig_call(tagged_posts, username)
+        except Exception:
+            posts = []
+        if not posts:
+            await context.bot.send_message(chat_id=chat_id, text="Koi tagged post nahi mila.")
+            return
+        for post in posts:
+            try:
+                await send_media(context.bot, chat_id, post.is_video, post.video_url if post.is_video else post.display_url, caption_of(post))
+            except Exception:
+                pass
+    elif action == "highlights":
+        await context.bot.send_message(chat_id=chat_id, text="Highlights ke liye login session chahiye, wo abhi setup nahi hua hai.")
+    elif action == "hide":
+        await context.bot.send_message(chat_id=chat_id, text="Ye feature Instagram ki API nahi deta, isliye nahi ban sakta.")
+    elif action == "subscribe":
+        await context.bot.send_message(chat_id=chat_id, text="Abhi subscribe feature nahi hai, baad me add karunga.")
 
 
 async def handle(update: Update, context):
